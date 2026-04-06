@@ -1,6 +1,6 @@
 [package]
-name = "jsonschama-form-tui"
-version = "0.1.0"
+name = "jsonschema-form-tui"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 

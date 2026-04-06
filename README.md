@@ -1,4 +1,4 @@
-# jsonschama-form-tui
+# jsonschema-form-tui
 
 JSON Schema からフォームを生成し、TUI 上で安全に JSON を編集する Rust 製ツールです。
 
