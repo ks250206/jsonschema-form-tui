@@ -1,0 +1,19 @@
+{
+  "title": "Deploy",
+  "type": "object",
+  "properties": {
+    "service": { "type": "string", "enum": ["api", "worker", "frontend"] },
+    "replicas": { "type": "integer", "default": 2 },
+    "region": { "const": "ap-northeast-1" },
+    "env": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "value": { "type": "string" }
+        }
+      }
+    }
+  }
+}

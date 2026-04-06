@@ -1,0 +1,56 @@
+{
+  "title": "Enum Array Demo",
+  "type": "object",
+  "properties": {
+    "environment": {
+      "type": "string",
+      "title": "Environment",
+      "description": "Deployment target",
+      "enum": ["dev", "staging", "prod"],
+      "default": "staging"
+    },
+    "features": {
+      "type": "array",
+      "title": "Features",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Feature Name",
+            "default": "search"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "rollout": {
+            "type": "string",
+            "title": "Rollout",
+            "enum": ["off", "beta", "general"],
+            "default": "beta"
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "title": "Steps",
+      "prefixItems": [
+        {
+          "type": "string",
+          "title": "First Step",
+          "enum": ["plan", "build", "ship"],
+          "default": "plan"
+        },
+        {
+          "type": "integer",
+          "title": "Retry Count",
+          "default": 2
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "title": "Basic",
+  "type": "object",
+  "required": ["name", "enabled", "status"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Primary display name for the example document.",
+      "default": "example"
+    },
+    "status": {
+      "type": "string",
+      "title": "Status",
+      "description": "Workflow state selected from a fixed set of publishing stages.",
+      "enum": ["draft", "review", "published"],
+      "default": "draft"
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Turns the example feature on or off.",
+      "default": true
+    },
+    "count": {
+      "type": "integer",
+      "description": "Whole-number quantity used for integer input testing.",
+      "default": 1
+    },
+    "ratio": {
+      "type": "number",
+      "title": "Ratio",
+      "description": "Floating-point value used for number input testing.",
+      "default": 1.5
+    },
+    "tags": {
+      "type": "array",
+      "title": "Tags",
+      "description": "Variable-length list of short tag strings.",
+      "minItems": 2,
+      "items": {
+        "type": "string",
+        "description": "Single tag label.",
+        "default": "tag"
+      }
+    },
+    "members": {
+      "type": "array",
+      "title": "Members",
+      "description": "Variable-length list of object items with mixed field types.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "description": "Member entry grouped under the parent array.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Member Name",
+            "description": "Name of the member in this array item.",
+            "default": "Alice"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "description": "Permission role selected from predefined options.",
+            "enum": ["owner", "editor", "viewer"],
+            "default": "owner"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "description": "Whether this member is currently active.",
+            "default": true
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "string",
+      "format": "textarea",
+      "title": "Note",
+      "description": "Multi-line note field for textarea-style editing.",
+      "default": "First line of the note.\nSecond line for textarea editing."
+    }
+  }
+}
