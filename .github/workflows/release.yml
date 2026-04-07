@@ -20,11 +20,11 @@ jobs:
           - os: macos-14
             label: macOS Apple Silicon
             archive_suffix: apple-silicon-mac
-            binary_name: jsonschama-form-tui
+            binary_name: jsonschema-form-tui
           - os: windows-latest
             label: Windows x64
             archive_suffix: windows-x64
-            binary_name: jsonschama-form-tui.exe
+            binary_name: jsonschema-form-tui.exe
 
     steps:
       - name: Checkout
@@ -38,7 +38,7 @@ jobs:
           else
             version="manual-${GITHUB_RUN_NUMBER}"
           fi
-          echo "ARCHIVE_NAME=jsonschama-form-tui-${version}-${{ matrix.archive_suffix }}.zip" >> "${GITHUB_ENV}"
+          echo "ARCHIVE_NAME=jsonschema-form-tui-${version}-${{ matrix.archive_suffix }}.zip" >> "${GITHUB_ENV}"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -49,21 +49,21 @@ jobs:
       - name: Prepare archive directory
         shell: bash
         run: |
-          mkdir -p dist/jsonschama-form-tui/schema
-          cp "target/release/${{ matrix.binary_name }}" dist/jsonschama-form-tui/
-          cp README.md LICENSE dist/jsonschama-form-tui/
-          cp schema/*.json dist/jsonschama-form-tui/schema/
+          mkdir -p dist/jsonschema-form-tui/schema
+          cp "target/release/${{ matrix.binary_name }}" dist/jsonschema-form-tui/
+          cp README.md LICENSE dist/jsonschema-form-tui/
+          cp schema/*.json dist/jsonschema-form-tui/schema/
 
       - name: Create zip archive on macOS
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          ditto -c -k --sequesterRsrc --keepParent dist/jsonschama-form-tui "dist/${ARCHIVE_NAME}"
+          ditto -c -k --sequesterRsrc --keepParent dist/jsonschema-form-tui "dist/${ARCHIVE_NAME}"
 
       - name: Create zip archive on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/jsonschama-form-tui -DestinationPath "dist/$env:ARCHIVE_NAME" -Force
+        run: Compress-Archive -Path dist/jsonschema-form-tui -DestinationPath "dist/$env:ARCHIVE_NAME" -Force
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
