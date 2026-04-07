@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use jsonschama_form_tui::app::state::{AppMode, AppState};
-use jsonschama_form_tui::ui::app::run_app;
+use jsonschema_form_tui::app::state::{AppMode, AppState};
+use jsonschema_form_tui::ui::app::run_app;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

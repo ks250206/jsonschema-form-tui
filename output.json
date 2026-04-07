@@ -1,0 +1,32 @@
+{
+    "name": "aaaae",
+    "status": "review",
+    "enabled": false,
+    "count": 1,
+    "ratio": 1.5,
+    "tags": [
+        "aaaatag",
+        "gggtag",
+        "tag",
+        "tag",
+        "tag"
+    ],
+    "members": [
+        {
+            "name": "Alice",
+            "role": "owner",
+            "active": true
+        },
+        {
+            "name": "Alice",
+            "role": "owner",
+            "active": true
+        },
+        {
+            "name": "Alice",
+            "role": "owner",
+            "active": true
+        }
+    ],
+    "note": "aaaaa\n\nbbb\n\nFirst line of the note.\nSecond line for textarea editing."
+}

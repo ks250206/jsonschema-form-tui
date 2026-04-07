@@ -949,28 +949,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonschama-form-tui"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "arboard",
- "clap",
- "crossterm",
- "indexmap",
- "insta",
- "jsonschema",
- "ratatui",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "tui-textarea",
- "unicode-width 0.2.0",
-]
-
-[[package]]
 name = "jsonschema"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -998,6 +976,28 @@ dependencies = [
  "time",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "jsonschema-form-tui"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "clap",
+ "crossterm",
+ "indexmap",
+ "insta",
+ "jsonschema",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "tui-textarea",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
