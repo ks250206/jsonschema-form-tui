@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/schemas/material.json",
+  "title": "Material Benchmark Record",
+  "description": "Generic benchmark schema for material-related cell configurations, test conditions, results, and references.",
+  "type": "object",
+  "required": [
+    "cell_configuration"
+  ],
+  "properties": {
+    "cell_configuration": {
+      "type": "object",
+      "required": [
+        "cell_format",
+        "working_electrode",
+        "counter_electrode"
+      ],
+      "properties": {
+        "cell_format": {
+          "type": "string",
+          "enum": [
+            "symmetric_cell",
+            "full_cell"
+          ]
+        },
+        "working_electrode": {
+          "$ref": "#/$defs/electrode"
+        },
+        "counter_electrode": {
+          "$ref": "#/$defs/electrode"
+        },
+        "solid_electrolyte": {
+          "$ref": "#/$defs/solid_electrolyte"
+        }
+      }
+    },
+    "test_condition": {
+      "type": "object",
+      "properties": {
+        "temperature_c": {
+          "type": "number"
+        },
+        "cycle_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "life_time_h": {
+          "type": "number",
+          "minimum": 0
+        },
+        "current_density_mA_cm2": {
+          "type": "number"
+        },
+        "cutoff_capacity_mAh_cm2": {
+          "type": "number"
+        }
+      }
+    },
+    "benchmark_result": {
+      "type": "object",
+      "properties": {
+        "critical_current_density_mA_cm2": {
+          "type": "number"
+        },
+        "cumulative_capacity_plated_mAh_cm2": {
+          "type": "number"
+        }
+      }
+    },
+    "reference_metadata": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "bibliographic_reference": {
+          "type": "string"
+        },
+        "doi": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "material": {
+      "type": "object",
+      "properties": {
+        "material_name": {
+          "type": "string"
+        },
+        "material_category": {
+          "type": "string",
+          "description": "User-defined category such as metal, composite, active_material, additive, collector, etc."
+        },
+        "material_composition": {
+          "type": "string",
+          "description": "Formula or composition description."
+        }
+      }
+    },
+    "coating": {
+      "type": "object",
+      "properties": {
+        "coating_material": {
+          "type": "string"
+        },
+        "coating_thickness_nm": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "current_collector": {
+      "type": "object",
+      "properties": {
+        "collector_material": {
+          "type": "string"
+        },
+        "collector_thickness_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "collector_diameter_mm": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "solid_electrolyte": {
+      "type": "object",
+      "properties": {
+        "electrolyte_abbreviation": {
+          "type": "string"
+        },
+        "composition_formula": {
+          "type": "string"
+        },
+        "crystal_structure": {
+          "type": "string"
+        },
+        "phase_state": {
+          "type": "string",
+          "enum": [
+            "amorphous",
+            "crystal",
+            "glass_ceramic",
+            "unknown"
+          ]
+        },
+        "electrolyte_type": {
+          "type": "string",
+          "enum": [
+            "sulfide",
+            "oxide",
+            "halide",
+            "polymer",
+            "other"
+          ]
+        },
+        "weight_mg": {
+          "type": "number",
+          "minimum": 0
+        },
+        "thickness_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "diameter_mm": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "composite_ratio": {
+      "type": "object",
+      "properties": {
+        "ratio_basis": {
+          "type": "string",
+          "enum": [
+            "wt_percent",
+            "vol_percent",
+            "molar_ratio",
+            "unknown"
+          ],
+          "default": "wt_percent"
+        },
+        "active_material_ratio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "solid_electrolyte_ratio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "conductive_additive_ratio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "binder_ratio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "other_ratio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "ratio_note": {
+          "type": "string"
+        }
+      }
+    },
+    "metal_electrode_details": {
+      "type": "object",
+      "properties": {
+        "thickness_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "diameter_mm": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "composite_electrode_details": {
+      "type": "object",
+      "properties": {
+        "active_material": {
+          "$ref": "#/$defs/material"
+        },
+        "electrode_diameter_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "composite_ratio": {
+          "$ref": "#/$defs/composite_ratio"
+        },
+        "composite_solid_electrolyte": {
+          "$ref": "#/$defs/solid_electrolyte"
+        },
+        "conductive_additives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/material"
+          }
+        },
+        "design_capacity_mAh": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "metal_electrode": {
+      "title": "Metal Electrode",
+      "type": "object",
+      "required": [
+        "electrode_type"
+      ],
+      "properties": {
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "electrode_type": {
+          "const": "metal"
+        },
+        "coating": {
+          "$ref": "#/$defs/coating"
+        },
+        "current_collector": {
+          "$ref": "#/$defs/current_collector"
+        },
+        "details": {
+          "$ref": "#/$defs/metal_electrode_details"
+        }
+      }
+    },
+    "composite_electrode": {
+      "title": "Composite Electrode",
+      "type": "object",
+      "required": [
+        "electrode_type"
+      ],
+      "properties": {
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "electrode_type": {
+          "const": "composite_electrode"
+        },
+        "coating": {
+          "$ref": "#/$defs/coating"
+        },
+        "current_collector": {
+          "$ref": "#/$defs/current_collector"
+        },
+        "details": {
+          "$ref": "#/$defs/composite_electrode_details"
+        }
+      }
+    },
+    "electrode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/metal_electrode"
+        },
+        {
+          "$ref": "#/$defs/composite_electrode"
+        }
+      ]
+    }
+  }
+}

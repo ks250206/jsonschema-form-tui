@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 use crate::domain::bundled;
 use crate::domain::filter::{FilterOutcome, evaluate_filter, pretty_json};
 use crate::domain::form::{
-    FormField, SchemaType, append_array_item, build_form_fields, default_value_for_schema,
-    remove_array_item, resolve_schema_at_path, set_scalar_value,
+    FormField, FormFieldKind, SchemaType, append_array_item, build_form_fields_with,
+    default_value_at_path, default_value_for_schema, form_path_key, json_scalar_display_at_path,
+    remove_array_item, replace_json_at_path, resolve_schema_at_path_with, set_scalar_value,
+    ResolveCtx,
 };
 use crate::domain::validation::{ValidationSummary, validate_document};
 use crate::infra::clipboard;
@@ -31,6 +33,14 @@ pub enum InputMode {
     Normal,
     Insert,
     Visual,
+}
+
+/// Single main-area layout: one column uses the full width below Schema Path (Log/Footer unchanged).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainFullwidthPane {
+    Schema,
+    Form,
+    OutputColumn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -175,6 +185,12 @@ pub struct AppState {
     pub form_button_focus: Option<FormArrayButtonFocus>,
     pub schema_collapsed: bool,
     pub form_collapsed: bool,
+    /// One main column (Schema, Form, or output stack) spans the full width under Schema Path.
+    pub main_fullwidth: Option<MainFullwidthPane>,
+    /// JSON path key ([`form_path_key`]) → selected `oneOf` branch index for form generation.
+    pub one_of_choices: HashMap<String, usize>,
+    /// High-resolution mouse wheel: move form cursor one row per this many ticks.
+    pub(crate) form_mouse_scroll_accum: i8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,6 +239,9 @@ impl AppState {
             form_button_focus: None,
             schema_collapsed: false,
             form_collapsed: false,
+            main_fullwidth: None,
+            one_of_choices: HashMap::new(),
+            form_mouse_scroll_accum: 0,
         };
         if let Err(err) = state.set_schema_source(state.schema_path.schema_source.clone()) {
             state.schema_error = Some(SchemaError {
@@ -260,7 +279,7 @@ impl AppState {
 
     pub fn pane_line_progress(&self, pane: PaneId) -> Option<(usize, usize)> {
         match pane {
-            PaneId::Schema | PaneId::Log => {
+            PaneId::Schema | PaneId::Output | PaneId::Log => {
                 let total = self.pane_line_count(pane).max(1);
                 let current = self.cursor_row(pane).min(total.saturating_sub(1)) + 1;
                 Some((current, total))
@@ -298,6 +317,36 @@ impl AppState {
             PaneId::Schema => self.schema_collapsed = false,
             PaneId::Form => self.form_collapsed = false,
             _ => {}
+        }
+    }
+
+    pub fn toggle_main_fullwidth_for_active_pane(&mut self) {
+        let target = match self.active_pane {
+            PaneId::Schema if self.is_pane_visible(PaneId::Schema) => Some(MainFullwidthPane::Schema),
+            PaneId::Form => Some(MainFullwidthPane::Form),
+            PaneId::Output | PaneId::Filter | PaneId::OutputPath => Some(MainFullwidthPane::OutputColumn),
+            _ => None,
+        };
+        let Some(target) = target else {
+            self.log(
+                "fullwidth: focus Schema, Form, Output Path, Filter, or Output, then type z w"
+                    .to_owned(),
+            );
+            return;
+        };
+        if self.main_fullwidth == Some(target) {
+            self.main_fullwidth = None;
+            self.log("main area layout reset".to_owned());
+        } else {
+            self.main_fullwidth = Some(target);
+            self.log(format!(
+                "main area: {} full width (z w again to reset)",
+                match target {
+                    MainFullwidthPane::Schema => "Schema",
+                    MainFullwidthPane::Form => "Form",
+                    MainFullwidthPane::OutputColumn => "Output path / Filter / Output",
+                }
+            ));
         }
     }
 
@@ -384,6 +433,7 @@ impl AppState {
                 return Ok(());
             }
         };
+        self.one_of_choices.clear();
         let default_output = match default_value_for_schema(&parsed, &parsed) {
             Ok(default_output) => default_output,
             Err(err) => {
@@ -391,7 +441,7 @@ impl AppState {
                 return Ok(());
             }
         };
-        let fields = build_form_fields(&parsed, &parsed, &default_output);
+        let fields = build_form_fields_with(&parsed, &parsed, &default_output, Some(&self.one_of_choices));
         let validation = match validate_document(&parsed, &default_output) {
             Ok(validation) => validation,
             Err(err) => {
@@ -546,6 +596,9 @@ impl AppState {
     pub fn focus_pane_at(&mut self, pane: PaneId) {
         if !self.is_pane_visible(pane) {
             return;
+        }
+        if pane != PaneId::Form {
+            self.form_mouse_scroll_accum = 0;
         }
         self.active_pane = pane;
         self.exit_mode();
@@ -934,11 +987,20 @@ impl AppState {
             .and_then(Value::as_array)
             .map(|items| items.len())
             .unwrap_or(0);
-        let next_json = append_array_item(&self.output_json, &self.schema_json, &array_path)?;
+        let next_json = append_array_item(
+            &self.output_json,
+            &self.schema_json,
+            &array_path,
+            Some(&self.one_of_choices),
+        )?;
         let validation = validate_document(&self.schema_json, &next_json)?;
         self.output_json = next_json;
-        self.form_fields =
-            build_form_fields(&self.schema_json, &self.schema_json, &self.output_json);
+        self.form_fields = build_form_fields_with(
+            &self.schema_json,
+            &self.schema_json,
+            &self.output_json,
+            Some(&self.one_of_choices),
+        );
         self.validation = validation;
         self.refresh_filter();
         if let Some(new_row) = self.form_fields.iter().position(|candidate| {
@@ -970,11 +1032,16 @@ impl AppState {
             &self.schema_json,
             &array_path,
             item_index,
+            Some(&self.one_of_choices),
         )?;
         let validation = validate_document(&self.schema_json, &next_json)?;
         self.output_json = next_json;
-        self.form_fields =
-            build_form_fields(&self.schema_json, &self.schema_json, &self.output_json);
+        self.form_fields = build_form_fields_with(
+            &self.schema_json,
+            &self.schema_json,
+            &self.output_json,
+            Some(&self.one_of_choices),
+        );
         self.validation = validation;
         self.refresh_filter();
 
@@ -1006,11 +1073,16 @@ impl AppState {
             return Ok(());
         }
         self.record_edit_state(PaneId::Form);
+        self.one_of_choices.clear();
         let default_output = default_value_for_schema(&self.schema_json, &self.schema_json)?;
         let validation = validate_document(&self.schema_json, &default_output)?;
         self.output_json = default_output;
-        self.form_fields =
-            build_form_fields(&self.schema_json, &self.schema_json, &self.output_json);
+        self.form_fields = build_form_fields_with(
+            &self.schema_json,
+            &self.schema_json,
+            &self.output_json,
+            Some(&self.one_of_choices),
+        );
         self.validation = validation;
         self.field_errors.clear();
         self.form_button_focus = None;
@@ -1619,6 +1691,23 @@ impl AppState {
         if options.is_empty() {
             return false;
         }
+        if matches!(field.kind, FormFieldKind::OneOfSelector { .. }) {
+            let branch_count = options.len();
+            let current = options
+                .iter()
+                .position(|option| option == &field.edit_buffer)
+                .unwrap_or(0);
+            let next =
+                (current as isize + delta).rem_euclid(branch_count as isize) as usize;
+            let value_path = field.path.clone();
+            if let Err(err) = self.apply_one_of_branch_index(value_path, next) {
+                self.log(format!("oneOf branch error: {err}"));
+            }
+            if let Some(cursor) = self.pane_cursors.get_mut(&PaneId::Form) {
+                cursor.col = 0;
+            }
+            return true;
+        }
         let current = options
             .iter()
             .position(|option| option == &field.edit_buffer)
@@ -1649,13 +1738,23 @@ impl AppState {
         let Some(options) = field.enum_options.as_ref() else {
             return false;
         };
-        let Some(next) = options
+        let Some(next_index) = options
             .iter()
-            .find(|option| option.to_ascii_lowercase().starts_with(&needle))
-            .cloned()
+            .position(|option| option.to_ascii_lowercase().starts_with(&needle))
         else {
             return false;
         };
+        if matches!(field.kind, FormFieldKind::OneOfSelector { .. }) {
+            let value_path = field.path.clone();
+            if let Err(err) = self.apply_one_of_branch_index(value_path, next_index) {
+                self.log(format!("oneOf branch error: {err}"));
+            }
+            if let Some(cursor) = self.pane_cursors.get_mut(&PaneId::Form) {
+                cursor.col = 0;
+            }
+            return true;
+        }
+        let next = options[next_index].clone();
         if let Some(field) = self.form_fields.get_mut(row) {
             field.edit_buffer = next;
         }
@@ -1668,12 +1767,63 @@ impl AppState {
         true
     }
 
+    fn apply_one_of_branch_index(&mut self, value_path: Vec<String>, new_index: usize) -> Result<()> {
+        let choice_key = form_path_key(&value_path);
+        let old_branch_index = self.one_of_choices.get(&choice_key).copied();
+        self.record_edit_state(PaneId::Form);
+        self.one_of_choices.insert(choice_key.clone(), new_index);
+        let subtree = default_value_at_path(
+            &self.schema_json,
+            &value_path,
+            Some(&self.one_of_choices),
+        )?;
+        let mut next_json = self.output_json.clone();
+        replace_json_at_path(&mut next_json, &value_path, subtree)?;
+        let validation = validate_document(&self.schema_json, &next_json)?;
+        if !validation.is_valid {
+            let message = validation
+                .errors
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "unknown validation error".to_owned());
+            self.log(format!("oneOf: validation error: {message}"));
+            self.one_of_choices.remove(&choice_key);
+            return Ok(());
+        }
+        self.output_json = next_json;
+        self.form_fields = build_form_fields_with(
+            &self.schema_json,
+            &self.schema_json,
+            &self.output_json,
+            Some(&self.one_of_choices),
+        );
+        self.validation = validation;
+        self.field_errors.remove(&format!("{}.oneOf", value_path.join(".")));
+        self.refresh_filter();
+        let path_s = value_path.join(".");
+        let old_s = old_branch_index
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| "default".to_owned());
+        self.log(format!(
+            "form oneOf {path_s}: branch index {old_s} -> {new_index}"
+        ));
+        self.clamp_cursor(PaneId::Form);
+        Ok(())
+    }
+
     fn commit_form_field(&mut self) -> Result<()> {
         let row = self.cursor_row(PaneId::Form);
         let Some(field) = self.form_fields.get(row).cloned() else {
             return Ok(());
         };
+        if matches!(field.kind, FormFieldKind::OneOfSelector { .. }) {
+            return Ok(());
+        }
         let field_key = field.path.join(".");
+        let old_display = Self::concise_form_log_value(&json_scalar_display_at_path(
+            &self.output_json,
+            &field.path,
+        ));
 
         let next_json = match set_scalar_value(
             &self.output_json,
@@ -1701,15 +1851,39 @@ impl AppState {
             return Ok(());
         }
 
+        let new_display = Self::concise_form_log_value(&json_scalar_display_at_path(
+            &next_json,
+            &field.path,
+        ));
+
         self.output_json = next_json;
-        self.form_fields =
-            build_form_fields(&self.schema_json, &self.schema_json, &self.output_json);
+        self.form_fields = build_form_fields_with(
+            &self.schema_json,
+            &self.schema_json,
+            &self.output_json,
+            Some(&self.one_of_choices),
+        );
         self.validation = validation;
         self.field_errors.remove(&field_key);
         self.refresh_filter();
-        self.log(format!("updated {field_key}"));
+        self.log(format!(
+            "form field {field_key}: {old_display} -> {new_display}"
+        ));
         self.clamp_cursor(PaneId::Form);
         Ok(())
+    }
+
+    /// Shorten values for the log pane (newlines as `\n`, cap length).
+    fn concise_form_log_value(raw: &str) -> String {
+        const MAX_CHARS: usize = 100;
+        let collapsed = raw.replace('\r', "").replace('\n', "\\n");
+        let n = collapsed.chars().count();
+        if n <= MAX_CHARS {
+            collapsed
+        } else {
+            let prefix: String = collapsed.chars().take(MAX_CHARS).collect();
+            format!("{prefix}… (+{} more chars)", n.saturating_sub(MAX_CHARS))
+        }
     }
 
     pub fn log_error(&mut self, message: impl Into<String>) {
@@ -1820,16 +1994,12 @@ impl AppState {
             }
             PaneId::Filter => text_lines(&self.filter_text),
             PaneId::Output => {
-                let mut lines = text_lines(&self.filter_outcome.text);
-                if let Some(error) = &self.filter_outcome.error {
-                    lines.push(String::new());
-                    lines.push(format!("filter error: {error}"));
+                let lines = text_lines(&self.filter_outcome.text);
+                if lines.is_empty() {
+                    vec![String::new()]
+                } else {
+                    lines
                 }
-                if self.schema_error.is_none() && !self.validation.is_valid {
-                    lines.push(String::new());
-                    lines.push(format!("validation: {}", self.validation.status_line()));
-                }
-                lines
             }
             PaneId::Log => {
                 if self.logs.is_empty() {
@@ -1932,7 +2102,12 @@ impl AppState {
             .and_then(Value::as_array)
             .map(|items| items.len())
             .unwrap_or(0);
-        let Ok(schema) = resolve_schema_at_path(&self.schema_json, array_path) else {
+        let ctx = ResolveCtx {
+            root: &self.schema_json,
+            instance: Some(&self.output_json),
+            choices: Some(&self.one_of_choices),
+        };
+        let Ok(schema) = resolve_schema_at_path_with(array_path, ctx) else {
             return false;
         };
         let has_additional_schema = schema.get("items").is_some()
@@ -1961,7 +2136,12 @@ impl AppState {
             .and_then(Value::as_array)
             .map(|items| items.len())
             .unwrap_or(0);
-        let Ok(schema) = resolve_schema_at_path(&self.schema_json, array_path) else {
+        let ctx = ResolveCtx {
+            root: &self.schema_json,
+            instance: Some(&self.output_json),
+            choices: Some(&self.one_of_choices),
+        };
+        let Ok(schema) = resolve_schema_at_path_with(array_path, ctx) else {
             return false;
         };
         let min_items = schema
@@ -2575,7 +2755,9 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::domain::form::{FormField, SchemaType, build_form_fields};
+    use crate::domain::form::{
+        FormField, FormFieldKind, SchemaType, build_form_fields_with, default_value_for_schema,
+    };
 
     use super::{AppMode, AppState, InputMode, PaneId, ScreenMode, is_schema_path_entry};
 
@@ -2758,6 +2940,61 @@ mod tests {
     }
 
     #[test]
+    fn one_of_selector_wraps_and_writes_branch_defaults() {
+        let mut state = AppState::new();
+        state.schema_json = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "electrode": { "$ref": "#/$defs/electrode" }
+            },
+            "$defs": {
+                "metal": {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "const": "metal" },
+                        "thickness_mm": { "type": "number", "default": 1.0 }
+                    }
+                },
+                "composite": {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "const": "composite" },
+                        "layers": { "type": "integer", "default": 2 }
+                    }
+                },
+                "electrode": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/metal" },
+                        { "$ref": "#/$defs/composite" }
+                    ]
+                }
+            }
+        });
+        state.output_json =
+            default_value_for_schema(&state.schema_json, &state.schema_json).unwrap();
+        state.form_fields = build_form_fields_with(
+            &state.schema_json,
+            &state.schema_json,
+            &state.output_json,
+            Some(&state.one_of_choices),
+        );
+        state.active_pane = PaneId::Form;
+        let row = state
+            .form_fields
+            .iter()
+            .position(|f| matches!(f.kind, FormFieldKind::OneOfSelector { .. }))
+            .unwrap();
+        state.pane_cursors.get_mut(&PaneId::Form).unwrap().row = row;
+
+        state.move_cursor_right();
+        assert_eq!(state.output_json["electrode"]["kind"], "composite");
+        assert_eq!(state.output_json["electrode"]["layers"], 2);
+
+        state.move_cursor_right();
+        assert_eq!(state.output_json["electrode"]["kind"], "metal");
+    }
+
+    #[test]
     fn form_enum_cycles_with_horizontal_motion() {
         let mut state = AppState::new();
         state.active_pane = PaneId::Form;
@@ -2782,6 +3019,7 @@ mod tests {
             multiline: false,
             required: true,
             edit_buffer: "draft".to_owned(),
+            kind: FormFieldKind::Scalar,
         }];
 
         state.move_cursor_right();
@@ -2821,6 +3059,7 @@ mod tests {
             multiline: false,
             required: true,
             edit_buffer: "draft".to_owned(),
+            kind: FormFieldKind::Scalar,
         }];
 
         state.insert_char_form('l');
@@ -2844,6 +3083,7 @@ mod tests {
             multiline: true,
             required: false,
             edit_buffer: "hello".to_owned(),
+            kind: FormFieldKind::Scalar,
         }];
         state.pane_cursors.get_mut(&PaneId::Form).unwrap().col = 5;
 
@@ -2867,6 +3107,7 @@ mod tests {
             multiline: true,
             required: false,
             edit_buffer: "abc\nde".to_owned(),
+            kind: FormFieldKind::Scalar,
         }];
         state.pane_cursors.get_mut(&PaneId::Form).unwrap().row = 0;
         state.pane_cursors.get_mut(&PaneId::Form).unwrap().col = 1;
@@ -2894,6 +3135,7 @@ mod tests {
             multiline: false,
             required: false,
             edit_buffer: String::new(),
+            kind: FormFieldKind::Scalar,
         }];
 
         state.insert_char('1');
@@ -2917,6 +3159,7 @@ mod tests {
             multiline: false,
             required: false,
             edit_buffer: String::new(),
+            kind: FormFieldKind::Scalar,
         }];
 
         for c in ['+', '-', '.', '1', 'e', 'E'] {
@@ -2965,7 +3208,12 @@ mod tests {
             "tags": ["alpha", "beta"]
         });
         state.form_fields =
-            build_form_fields(&state.schema_json, &state.schema_json, &state.output_json);
+            build_form_fields_with(
+                &state.schema_json,
+                &state.schema_json,
+                &state.output_json,
+                Some(&state.one_of_choices),
+            );
         state.pane_cursors.get_mut(&PaneId::Form).unwrap().row = 1;
 
         state.add_array_item_at_cursor().unwrap();
@@ -2997,7 +3245,12 @@ mod tests {
             "name": "demo"
         });
         state.form_fields =
-            build_form_fields(&state.schema_json, &state.schema_json, &state.output_json);
+            build_form_fields_with(
+                &state.schema_json,
+                &state.schema_json,
+                &state.output_json,
+                Some(&state.one_of_choices),
+            );
 
         state.add_array_item_at_cursor().unwrap();
 
@@ -3032,7 +3285,12 @@ mod tests {
             ]
         });
         state.form_fields =
-            build_form_fields(&state.schema_json, &state.schema_json, &state.output_json);
+            build_form_fields_with(
+                &state.schema_json,
+                &state.schema_json,
+                &state.output_json,
+                Some(&state.one_of_choices),
+            );
         let row = state
             .form_fields
             .iter()
@@ -3075,7 +3333,12 @@ mod tests {
             "tags": ["only"]
         });
         state.form_fields =
-            build_form_fields(&state.schema_json, &state.schema_json, &state.output_json);
+            build_form_fields_with(
+                &state.schema_json,
+                &state.schema_json,
+                &state.output_json,
+                Some(&state.one_of_choices),
+            );
 
         let result = state.remove_array_item_at_cursor();
 
@@ -3101,7 +3364,12 @@ mod tests {
             "tags": ["one", "two"]
         });
         state.form_fields =
-            build_form_fields(&state.schema_json, &state.schema_json, &state.output_json);
+            build_form_fields_with(
+                &state.schema_json,
+                &state.schema_json,
+                &state.output_json,
+                Some(&state.one_of_choices),
+            );
 
         let result = state.add_array_item_at_cursor();
 
@@ -3125,7 +3393,12 @@ mod tests {
             "count": 9
         });
         state.form_fields =
-            build_form_fields(&state.schema_json, &state.schema_json, &state.output_json);
+            build_form_fields_with(
+                &state.schema_json,
+                &state.schema_json,
+                &state.output_json,
+                Some(&state.one_of_choices),
+            );
         state
             .field_errors
             .insert("name".to_owned(), "bad".to_owned());

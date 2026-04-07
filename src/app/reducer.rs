@@ -106,6 +106,7 @@ pub fn reduce(state: &mut AppState, action: Action) -> Result<bool> {
             }
         }
         Action::TogglePaneCollapse => state.toggle_active_pane_collapse(),
+        Action::ToggleMainFullwidth => state.toggle_main_fullwidth_for_active_pane(),
         Action::CollapsePane => state.collapse_active_pane(),
         Action::ExpandPane => state.expand_active_pane(),
         Action::Undo => state.undo(),

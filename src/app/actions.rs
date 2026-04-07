@@ -42,6 +42,7 @@ pub enum Action {
     RemoveArrayItem,
     ResetForm,
     TogglePaneCollapse,
+    ToggleMainFullwidth,
     CollapsePane,
     ExpandPane,
     Undo,
@@ -89,7 +90,6 @@ impl Action {
                 KeyCode::Char('$') if pending_d => Self::DeleteToLineEnd,
                 KeyCode::Char('$') => Self::MoveLineEnd,
                 KeyCode::Char('w') | KeyCode::Char('W') if pending_d => Self::DeleteWordForward,
-                KeyCode::Char('w') | KeyCode::Char('W') => Self::MoveWordForward,
                 KeyCode::Char('e') | KeyCode::Char('E') => Self::MoveWordEnd,
                 KeyCode::Char('b') | KeyCode::Char('B') => Self::MoveWordBackward,
                 KeyCode::Char('d') if pending_d => Self::DeleteLine,
@@ -101,9 +101,11 @@ impl Action {
                 KeyCode::Char('g') if pending_g => Self::MoveTop,
                 KeyCode::Char('g') => Self::AwaitSecondG,
                 KeyCode::Char('a') if pending_z => Self::TogglePaneCollapse,
+                KeyCode::Char('w') | KeyCode::Char('W') if pending_z => Self::ToggleMainFullwidth,
                 KeyCode::Char('c') if pending_z => Self::CollapsePane,
                 KeyCode::Char('o') if pending_z => Self::ExpandPane,
                 KeyCode::Char('z') => Self::AwaitSecondZ,
+                KeyCode::Char('w') | KeyCode::Char('W') => Self::MoveWordForward,
                 KeyCode::Char('a') => Self::EnterInsertAfter,
                 KeyCode::Char('G') => Self::MoveBottom,
                 KeyCode::Char('i') => Self::EnterInsertBefore,
@@ -507,6 +509,22 @@ mod tests {
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
             ),
             Action::CommitActiveEditor
+        );
+    }
+
+    #[test]
+    fn z_then_w_toggles_main_fullwidth() {
+        assert_eq!(
+            Action::from_key(
+                crate::app::state::AppMode::Editor,
+                InputMode::Normal,
+                false,
+                false,
+                true,
+                PaneId::Form,
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE)
+            ),
+            Action::ToggleMainFullwidth
         );
     }
 }
