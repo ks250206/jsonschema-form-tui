@@ -973,13 +973,18 @@ impl AppState {
             return Ok(());
         }
         self.record_edit_state(PaneId::Form);
-        let row = self.cursor_row(PaneId::Form);
-        let Some(field) = self.form_fields.get(row) else {
-            return Ok(());
-        };
-        let Some(array_path) = array_path_for_field(&field.path) else {
-            self.log("current field is not inside an array");
-            return Ok(());
+        let array_path = if let Some(focus) = &self.form_button_focus {
+            focus.array_path.clone()
+        } else {
+            let row = self.cursor_row(PaneId::Form);
+            let Some(field) = self.form_fields.get(row) else {
+                return Ok(());
+            };
+            let Some(array_path) = array_path_for_form_field(field) else {
+                self.log("current field is not inside an array");
+                return Ok(());
+            };
+            array_path
         };
         let next_index = self
             .output_json
@@ -1816,7 +1821,10 @@ impl AppState {
         let Some(field) = self.form_fields.get(row).cloned() else {
             return Ok(());
         };
-        if matches!(field.kind, FormFieldKind::OneOfSelector { .. }) {
+        if matches!(
+            field.kind,
+            FormFieldKind::OneOfSelector { .. } | FormFieldKind::ArrayPlaceholder
+        ) {
             return Ok(());
         }
         let field_key = field.path.join(".");
@@ -2043,14 +2051,19 @@ impl AppState {
         let mut targets = Vec::new();
         let mut index = 0;
         while index < self.form_fields.len() {
-            targets.push(FormFocusTarget::Field(index));
-            if let Some(array_path) = array_path_for_field(&self.form_fields[index].path) {
+            let field = &self.form_fields[index];
+            if !matches!(field.kind, FormFieldKind::ArrayPlaceholder) {
+                targets.push(FormFocusTarget::Field(index));
+            }
+            if let Some(array_path) = array_path_for_form_field(field) {
                 let mut end = index + 1;
                 while end < self.form_fields.len()
-                    && array_path_for_field(&self.form_fields[end].path).as_ref()
+                    && array_path_for_form_field(&self.form_fields[end]).as_ref()
                         == Some(&array_path)
                 {
-                    targets.push(FormFocusTarget::Field(end));
+                    if !matches!(self.form_fields[end].kind, FormFieldKind::ArrayPlaceholder) {
+                        targets.push(FormFocusTarget::Field(end));
+                    }
                     end += 1;
                 }
                 if self.can_add_array_item(&array_path) {
@@ -2159,7 +2172,7 @@ impl AppState {
         let row = self.cursor_row(PaneId::Form);
         self.form_fields
             .get(row)
-            .map(|field| !field.multiline)
+            .map(|field| !field.multiline && !matches!(field.kind, FormFieldKind::ArrayPlaceholder))
             .unwrap_or(false)
     }
 
@@ -2328,6 +2341,13 @@ fn array_path_for_field(path: &[String]) -> Option<Vec<String>> {
     path.iter()
         .position(|segment| segment.parse::<usize>().is_ok())
         .map(|index| path[..index].to_vec())
+}
+
+fn array_path_for_form_field(field: &FormField) -> Option<Vec<String>> {
+    match field.kind {
+        FormFieldKind::ArrayPlaceholder => Some(field.path.clone()),
+        _ => array_path_for_field(&field.path),
+    }
 }
 
 fn array_location_for_field(path: &[String]) -> Option<(Vec<String>, usize)> {
@@ -2758,6 +2778,7 @@ mod tests {
     use crate::domain::form::{
         FormField, FormFieldKind, SchemaType, build_form_fields_with, default_value_for_schema,
     };
+    use crate::domain::validation::validate_document;
 
     use super::{AppMode, AppState, InputMode, PaneId, ScreenMode, is_schema_path_entry};
 
@@ -2843,6 +2864,47 @@ mod tests {
 
         assert_eq!(state.output_json["code"], "ABC");
         assert!(state.field_errors.contains_key("code"));
+    }
+
+    #[test]
+    fn wafer_mask_layout_name_commit_updates_output() {
+        let schema_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schema/wafer-mask-layout.schema.json");
+        let schema_text =
+            fs::read_to_string(schema_path).expect("read schema/wafer-mask-layout.schema.json");
+        let schema_json: serde_json::Value =
+            serde_json::from_str(&schema_text).expect("parse wafer-mask-layout schema");
+        let output_json =
+            default_value_for_schema(&schema_json, &schema_json).expect("build defaults");
+
+        let mut state = AppState::new();
+        state.schema_text = schema_text;
+        state.schema_json = schema_json;
+        state.output_json = output_json;
+        state.form_fields = build_form_fields_with(
+            &state.schema_json,
+            &state.schema_json,
+            &state.output_json,
+            Some(&state.one_of_choices),
+        );
+        state.validation =
+            validate_document(&state.schema_json, &state.output_json).expect("validate defaults");
+        state.active_pane = PaneId::Form;
+        state.input_mode = InputMode::Insert;
+
+        let row = state
+            .form_fields
+            .iter()
+            .position(|field| field.key == "name")
+            .expect("find name field");
+        state.pane_cursors.get_mut(&PaneId::Form).unwrap().row = row;
+        state.form_fields[row].edit_buffer = "mask-a".to_owned();
+
+        state.commit_active_editor().unwrap();
+
+        assert_eq!(state.output_json["name"], "mask-a");
+        assert!(state.validation.is_valid, "{:?}", state.validation.errors);
+        assert!(!state.field_errors.contains_key("name"));
     }
 
     #[test]
@@ -3256,6 +3318,55 @@ mod tests {
 
         assert_eq!(state.output_json["name"], "demo");
         assert_eq!(state.form_fields.len(), 1);
+    }
+
+    #[test]
+    fn add_array_item_works_from_empty_array_placeholder() {
+        let mut state = AppState::new();
+        state.active_pane = PaneId::Form;
+        state.schema_json = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "alignment_holes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "default": "hole" }
+                        }
+                    }
+                }
+            }
+        });
+        state.output_json = default_value_for_schema(&state.schema_json, &state.schema_json)
+            .expect("build empty-array defaults");
+        state.form_fields = build_form_fields_with(
+            &state.schema_json,
+            &state.schema_json,
+            &state.output_json,
+            Some(&state.one_of_choices),
+        );
+        let row = state
+            .form_fields
+            .iter()
+            .position(|field| matches!(field.kind, FormFieldKind::ArrayPlaceholder))
+            .expect("find array placeholder");
+        state.pane_cursors.get_mut(&PaneId::Form).unwrap().row = row;
+
+        state.add_array_item_at_cursor().unwrap();
+
+        assert_eq!(
+            state.output_json["alignment_holes"],
+            serde_json::json!([{ "name": "hole" }])
+        );
+        assert!(state.form_fields.iter().any(|field| {
+            field.path
+                == vec![
+                    "alignment_holes".to_owned(),
+                    "0".to_owned(),
+                    "name".to_owned()
+                ]
+        }));
     }
 
     #[test]

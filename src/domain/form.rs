@@ -19,6 +19,7 @@ pub enum FormFieldKind {
     OneOfSelector {
         branch_count: usize,
     },
+    ArrayPlaceholder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -414,14 +415,43 @@ fn default_value_for_schema_ctx(
             Ok(Value::Object(object))
         }
         Some("array") => default_array_value_ctx(ctx, schema, value_path),
-        Some("string") => Ok(Value::String(String::new())),
-        Some("integer") => Ok(Value::Number(Number::from(0))),
-        Some("number") => Ok(json!(0.0)),
+        Some("string") => Ok(Value::String(default_string_value(schema))),
+        Some("integer") => Ok(Value::Number(Number::from(default_integer_value(schema)))),
+        Some("number") => Ok(json!(default_number_value(schema))),
         Some("boolean") => Ok(Value::Bool(false)),
         Some("null") => Ok(Value::Null),
         Some(other) => bail!("unsupported schema type: {other}"),
         None => bail!("schema type is missing"),
     }
+}
+
+fn default_string_value(schema: &Value) -> String {
+    let min_length = schema.get("minLength").and_then(Value::as_u64).unwrap_or(0) as usize;
+    if min_length == 0 {
+        String::new()
+    } else {
+        "x".repeat(min_length)
+    }
+}
+
+fn default_integer_value(schema: &Value) -> i64 {
+    if let Some(exclusive_minimum) = schema.get("exclusiveMinimum").and_then(Value::as_f64) {
+        return exclusive_minimum.floor() as i64 + 1;
+    }
+    if let Some(minimum) = schema.get("minimum").and_then(Value::as_f64) {
+        return minimum.ceil() as i64;
+    }
+    0
+}
+
+fn default_number_value(schema: &Value) -> f64 {
+    if let Some(exclusive_minimum) = schema.get("exclusiveMinimum").and_then(Value::as_f64) {
+        return exclusive_minimum + 1.0;
+    }
+    if let Some(minimum) = schema.get("minimum").and_then(Value::as_f64) {
+        return minimum;
+    }
+    0.0
 }
 
 fn default_array_value_ctx(
@@ -588,19 +618,41 @@ fn flatten_fields(
     }
 
     if matches!(schema_type_name(schema), Some("array")) {
-        if let Some(items) = value.as_array() {
-            let prefix_items = schema.get("prefixItems").and_then(Value::as_array);
-            for (index, item) in items.iter().enumerate() {
-                let child_schema = prefix_items
-                    .and_then(|prefix_items| prefix_items.get(index))
-                    .or_else(|| schema.get("items"));
-                let Some(child_schema) = child_schema else {
-                    continue;
-                };
-                let mut next_path = path.to_vec();
-                next_path.push(index.to_string());
-                flatten_fields(ctx, child_schema, item, &next_path, required, output);
-            }
+        let items = value.as_array().cloned().unwrap_or_default();
+        if items.is_empty() {
+            let key = path.join(".");
+            let short_key = path.last().cloned().unwrap_or_else(|| "Array".to_owned());
+            let label = schema
+                .get("title")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .unwrap_or(short_key);
+            output.push(FormField {
+                path: path.to_vec(),
+                key,
+                label,
+                description: field_description(schema),
+                schema_type: SchemaType::String,
+                enum_options: None,
+                multiline: false,
+                required,
+                edit_buffer: String::new(),
+                kind: FormFieldKind::ArrayPlaceholder,
+            });
+            return;
+        }
+
+        let prefix_items = schema.get("prefixItems").and_then(Value::as_array);
+        for (index, item) in items.iter().enumerate() {
+            let child_schema = prefix_items
+                .and_then(|prefix_items| prefix_items.get(index))
+                .or_else(|| schema.get("items"));
+            let Some(child_schema) = child_schema else {
+                continue;
+            };
+            let mut next_path = path.to_vec();
+            next_path.push(index.to_string());
+            flatten_fields(ctx, child_schema, item, &next_path, required, output);
         }
         return;
     }
@@ -980,6 +1032,45 @@ mod tests {
             !fields.is_empty(),
             "expected form fields from material.json"
         );
+    }
+
+    #[test]
+    fn wafer_mask_layout_schema_file_defaults_and_validates() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("schema/wafer-mask-layout.schema.json");
+        let text =
+            std::fs::read_to_string(path).expect("read schema/wafer-mask-layout.schema.json");
+        let schema: serde_json::Value =
+            serde_json::from_str(&text).expect("parse wafer-mask-layout.schema.json");
+        let value =
+            default_value_for_schema(&schema, &schema).expect("defaults for wafer-mask-layout");
+        let summary = validate_document(&schema, &value).expect("compile schema");
+        assert!(summary.is_valid, "{:?}", summary.errors);
+        assert_eq!(value["name"], "x");
+        assert_eq!(value["openings"][0]["shape"]["radius_mm"], 1.0);
+    }
+
+    #[test]
+    fn empty_arrays_are_exposed_as_array_placeholders() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "alignment_holes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        });
+        let value = default_value_for_schema(&schema, &schema).unwrap();
+        let fields = build_form_fields(&schema, &schema, &value);
+
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].path, vec!["alignment_holes".to_owned()]);
+        assert!(matches!(fields[0].kind, FormFieldKind::ArrayPlaceholder));
     }
 
     #[test]

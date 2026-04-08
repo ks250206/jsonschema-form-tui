@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/wafer-mask-layout.schema.json",
+  "title": "Wafer Mask Layout",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "wafer_size", "openings"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Mask name"
+    },
+    "wafer_size": {
+      "type": "string",
+      "enum": ["2inch", "3inch", "4inch", "6inch", "8inch", "12inch"],
+      "description": "Target wafer size"
+    },
+    "openings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/opening"
+      }
+    },
+    "alignment_holes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/alignmentHole"
+      }
+    }
+  },
+  "$defs": {
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "shape"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "shape": {
+          "$ref": "#/$defs/shape"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+
+    "alignmentHole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "shape"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["primary", "secondary", "tertiary"]
+        },
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "shape": {
+          "$ref": "#/$defs/shape"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+
+    "position": {
+      "oneOf": [
+        { "$ref": "#/$defs/cartesianPosition" },
+        { "$ref": "#/$defs/polarPosition" }
+      ]
+    },
+
+    "cartesianPosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "x_mm", "y_mm"],
+      "properties": {
+        "type": {
+          "const": "cartesian"
+        },
+        "x_mm": {
+          "type": "number"
+        },
+        "y_mm": {
+          "type": "number"
+        }
+      }
+    },
+
+    "polarPosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "r_mm", "theta_deg"],
+      "properties": {
+        "type": {
+          "const": "polar"
+        },
+        "r_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "theta_deg": {
+          "type": "number",
+          "description": "Angle in degrees. 0 = +X direction, counterclockwise positive."
+        }
+      }
+    },
+
+    "shape": {
+      "oneOf": [
+        { "$ref": "#/$defs/circleShape" },
+        { "$ref": "#/$defs/rectangleShape" }
+      ]
+    },
+
+    "circleShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "radius_mm"],
+      "properties": {
+        "type": {
+          "const": "circle"
+        },
+        "radius_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+
+    "rectangleShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "width_mm", "height_mm"],
+      "properties": {
+        "type": {
+          "const": "rectangle"
+        },
+        "width_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rotation_deg": {
+          "type": "number",
+          "default": 0
+        }
+      }
+    }
+  }
+}

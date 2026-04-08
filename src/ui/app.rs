@@ -513,17 +513,17 @@ fn form_click_target(state: &AppState, area: Rect, x: u16, y: u16) -> Option<For
             break;
         }
 
-        if let Some(array_path) = array_path_for_form_group(&state.form_fields[scan].path) {
+        if let Some(array_path) = array_path_for_form_field(&state.form_fields[scan]) {
             let mut group_start = scan;
             while group_start > 0
-                && array_path_for_form_group(&state.form_fields[group_start - 1].path).as_ref()
+                && array_path_for_form_field(&state.form_fields[group_start - 1]).as_ref()
                     == Some(&array_path)
             {
                 group_start -= 1;
             }
             let mut end = scan + 1;
             while end < n
-                && array_path_for_form_group(&state.form_fields[end].path).as_ref()
+                && array_path_for_form_field(&state.form_fields[end]).as_ref()
                     == Some(&array_path)
             {
                 end += 1;
@@ -597,12 +597,12 @@ fn form_click_target(state: &AppState, area: Rect, x: u16, y: u16) -> Option<For
 
         let mut run_start = scan;
         while run_start > 0
-            && array_path_for_form_group(&state.form_fields[run_start - 1].path).is_none()
+            && array_path_for_form_field(&state.form_fields[run_start - 1]).is_none()
         {
             run_start -= 1;
         }
         let mut run_end = run_start;
-        while run_end < n && array_path_for_form_group(&state.form_fields[run_end].path).is_none()
+        while run_end < n && array_path_for_form_field(&state.form_fields[run_end]).is_none()
         {
             run_end += 1;
         }
@@ -803,17 +803,17 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             break;
         }
 
-        if let Some(array_path) = array_path_for_form_group(&state.form_fields[scan].path) {
+        if let Some(array_path) = array_path_for_form_field(&state.form_fields[scan]) {
             let mut group_start = scan;
             while group_start > 0
-                && array_path_for_form_group(&state.form_fields[group_start - 1].path).as_ref()
+                && array_path_for_form_field(&state.form_fields[group_start - 1]).as_ref()
                     == Some(&array_path)
             {
                 group_start -= 1;
             }
             let mut end = scan + 1;
             while end < n
-                && array_path_for_form_group(&state.form_fields[end].path).as_ref()
+                && array_path_for_form_field(&state.form_fields[end]).as_ref()
                     == Some(&array_path)
             {
                 end += 1;
@@ -915,12 +915,12 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
         let mut run_start = scan;
         while run_start > 0
-            && array_path_for_form_group(&state.form_fields[run_start - 1].path).is_none()
+            && array_path_for_form_field(&state.form_fields[run_start - 1]).is_none()
         {
             run_start -= 1;
         }
         let mut run_end = run_start;
-        while run_end < n && array_path_for_form_group(&state.form_fields[run_end].path).is_none()
+        while run_end < n && array_path_for_form_field(&state.form_fields[run_end]).is_none()
         {
             run_end += 1;
         }
@@ -950,6 +950,9 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
 fn render_form_field(frame: &mut Frame<'_>, state: &AppState, index: usize, area: Rect) {
     let field = &state.form_fields[index];
+    if matches!(field.kind, FormFieldKind::ArrayPlaceholder) {
+        return;
+    }
     let input_height = field_height(field);
     let mut y = area.y;
     let active = index == state.pane_cursors[&PaneId::Form].row;
@@ -1019,6 +1022,9 @@ fn render_form_field(frame: &mut Frame<'_>, state: &AppState, index: usize, area
 }
 
 fn field_render_height(state: &AppState, field: &crate::domain::form::FormField) -> u16 {
+    if matches!(field.kind, FormFieldKind::ArrayPlaceholder) {
+        return 0;
+    }
     let mut needed = 1 + field_height(field) + 1;
     if field.description.is_some() {
         needed += 1;
@@ -1038,7 +1044,9 @@ enum FormPart {
 fn object_frame_stack(field: &FormField) -> Vec<Vec<String>> {
     let path = &field.path;
     let max_k = match field.kind {
-        FormFieldKind::Scalar | FormFieldKind::OneOfSelector { .. } => path.len(),
+        FormFieldKind::Scalar
+        | FormFieldKind::OneOfSelector { .. }
+        | FormFieldKind::ArrayPlaceholder => path.len(),
     };
     let mut out = Vec::new();
     for k in 1..max_k {
@@ -2378,6 +2386,13 @@ fn array_path_for_form_group(path: &[String]) -> Option<Vec<String>> {
     path.iter()
         .position(|segment| segment.parse::<usize>().is_ok())
         .map(|index| path[..index].to_vec())
+}
+
+fn array_path_for_form_field(field: &FormField) -> Option<Vec<String>> {
+    match field.kind {
+        FormFieldKind::ArrayPlaceholder => Some(field.path.clone()),
+        _ => array_path_for_form_group(&field.path),
+    }
 }
 
 fn array_group_title(state: &AppState, array_path: &[String]) -> String {
